@@ -1,9 +1,17 @@
 // commands.js
-// Slash command definitions + handlers. Import into index.js.
+// Slash command definitions + handlers, all replies as embeds, plus a
+// button-driven driver market. Import into index.js.
 
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const db = require('./database');
 const engine = require('./gameEngine');
+const driversData = require('./drivers');
+
+const BRAND_COLOR = 0xE10600; // F1 red
+
+function baseEmbed(title) {
+  return new EmbedBuilder().setColor(BRAND_COLOR).setTitle(title).setTimestamp();
+}
 
 const commands = [
   new SlashCommandBuilder().setName('team-create')
@@ -54,6 +62,9 @@ const commands = [
     .addIntegerOption(o => o.setName('index').setDescription('Junior index (1-based)').setRequired(true))
     .addIntegerOption(o => o.setName('slot').setDescription('1 or 2').setRequired(true).addChoices({ name: 'Driver 1', value: 1 }, { name: 'Driver 2', value: 2 })),
 
+  new SlashCommandBuilder().setName('driver-market')
+    .setDescription('Browse real F1 drivers available to sign'),
+
   new SlashCommandBuilder().setName('negotiate-sponsor')
     .setDescription('Pursue a new sponsorship deal'),
 
@@ -90,6 +101,22 @@ function requireTeam(interaction, database) {
   return team;
 }
 
+function replyResult(interaction, title, msg) {
+  return interaction.reply({ embeds: [baseEmbed(title).setDescription(msg)] });
+}
+
+// ---- Driver market: builds embed + buttons for up to 5 free agents per page ----
+function buildMarketPage(freeAgents, page) {
+  const pageSize = 5;
+  const slice = freeAgents.slice(page * pageSize, page * pageSize + pageSize);
+  const embed = baseEmbed('🏁 Driver Market — Free Agents')
+    .setDescription(slice.map(d => `**${d.name}** — Skill ${d.skill}, Age ${d.age} — $${d.price.toLocaleString()}`).join('\n') || 'No free agents left.');
+  const row = new ActionRowBuilder().addComponents(
+    slice.map(d => new ButtonBuilder().setCustomId(`sign_${d.id}`).setLabel(d.name).setStyle(ButtonStyle.Primary))
+  );
+  return { embed, row };
+}
+
 async function handleCommand(interaction, database) {
   const { commandName } = interaction;
 
@@ -99,20 +126,20 @@ async function handleCommand(interaction, database) {
       return interaction.reply({ content: 'You already have a team.', ephemeral: true });
     }
     const team = db.createTeam(database, interaction.user.id, name);
-    return interaction.reply(`🏎️ Team **${team.name}** created! Starting budget: $${team.budget.toLocaleString()}.`);
+    return interaction.reply({ embeds: [baseEmbed(`🏎️ ${team.name} Founded`).setDescription(`Starting budget: $${team.budget.toLocaleString()}`)] });
   }
 
   if (commandName === 'team-info') {
     const team = requireTeam(interaction, database); if (!team) return;
-    const embed = new EmbedBuilder()
-      .setTitle(team.name)
+    const embed = baseEmbed(team.name)
       .addFields(
         { name: 'Budget', value: `$${team.budget.toLocaleString()}`, inline: true },
         { name: 'Reputation', value: `${team.reputation}`, inline: true },
         { name: 'Standings Points', value: `${team.standingsPoints}`, inline: true },
         { name: 'Car', value: `Aero ${team.car.aero} | Engine ${team.car.engine} | Chassis ${team.car.chassis} | Reliability ${team.car.reliability}` },
         { name: 'Drivers', value: team.drivers.map(d => `${d.name}: skill ${d.skill}, morale ${d.morale}, pts ${d.points}, wins ${d.wins}`).join('\n') },
-        { name: 'Facilities', value: Object.entries(team.facilities).map(([k, v]) => `${k}: L${v}`).join(', ') }
+        { name: 'Facilities', value: Object.entries(team.facilities).map(([k, v]) => `${k}: L${v}`).join(', ') },
+        { name: 'Achievement', value: engine.seasonAchievement(team) }
       );
     return interaction.reply({ embeds: [embed] });
   }
@@ -122,21 +149,21 @@ async function handleCommand(interaction, database) {
     const part = interaction.options.getString('part');
     const result = engine.upgradeCarPart(team, part, Math.round(Math.random() * 3 + 1), 3_000_000);
     db.saveTeam(database, interaction.user.id, team);
-    return interaction.reply(result.msg);
+    return replyResult(interaction, 'Car Upgrade', result.msg);
   }
 
   if (commandName === 'wind-tunnel') {
     const team = requireTeam(interaction, database); if (!team) return;
     const result = engine.windTunnelResearch(team);
     db.saveTeam(database, interaction.user.id, team);
-    return interaction.reply(result.msg);
+    return replyResult(interaction, 'Wind Tunnel Research', result.msg);
   }
 
   if (commandName === 'reliability-program') {
     const team = requireTeam(interaction, database); if (!team) return;
     const result = engine.reliabilityProgram(team, 2_500_000);
     db.saveTeam(database, interaction.user.id, team);
-    return interaction.reply(result.msg);
+    return replyResult(interaction, 'Reliability Program', result.msg);
   }
 
   if (commandName === 'upgrade-facility') {
@@ -145,14 +172,14 @@ async function handleCommand(interaction, database) {
     const cost = 5_000_000 * (team.facilities[facility] + 1);
     const result = engine.upgradeFacility(team, facility, cost);
     db.saveTeam(database, interaction.user.id, team);
-    return interaction.reply(result.msg);
+    return replyResult(interaction, 'Facility Upgrade', result.msg);
   }
 
   if (commandName === 'hire-pit-crew') {
     const team = requireTeam(interaction, database); if (!team) return;
     const result = engine.hirePitCrew(team, 2_000_000);
     db.saveTeam(database, interaction.user.id, team);
-    return interaction.reply(result.msg);
+    return replyResult(interaction, 'Pit Crew', result.msg);
   }
 
   if (commandName === 'train-driver') {
@@ -160,7 +187,7 @@ async function handleCommand(interaction, database) {
     const idx = interaction.options.getInteger('driver') - 1;
     const result = engine.trainDriver(team, idx, 1_500_000);
     db.saveTeam(database, interaction.user.id, team);
-    return interaction.reply(result.msg);
+    return replyResult(interaction, 'Driver Training', result.msg);
   }
 
   if (commandName === 'negotiate-contract') {
@@ -169,14 +196,14 @@ async function handleCommand(interaction, database) {
     const years = interaction.options.getInteger('years');
     const result = engine.negotiateContract(team, idx, years);
     db.saveTeam(database, interaction.user.id, team);
-    return interaction.reply(result.msg);
+    return replyResult(interaction, 'Contract Negotiation', result.msg);
   }
 
   if (commandName === 'scout-junior') {
     const team = requireTeam(interaction, database); if (!team) return;
     const result = engine.scoutJuniorDriver(team, 1_000_000);
     db.saveTeam(database, interaction.user.id, team);
-    return interaction.reply(result.msg);
+    return replyResult(interaction, 'Scouting Report', result.msg);
   }
 
   if (commandName === 'promote-junior') {
@@ -185,71 +212,102 @@ async function handleCommand(interaction, database) {
     const slot = interaction.options.getInteger('slot') - 1;
     const result = engine.promoteJunior(team, idx, slot);
     db.saveTeam(database, interaction.user.id, team);
-    return interaction.reply(result.msg);
+    return replyResult(interaction, 'Junior Promotion', result.msg);
+  }
+
+  if (commandName === 'driver-market') {
+    const team = requireTeam(interaction, database); if (!team) return;
+    const freeAgents = driversData.getFreeAgents(database);
+    const { embed, row } = buildMarketPage(freeAgents, 0);
+    return interaction.reply({ embeds: [embed], components: freeAgents.length ? [row] : [] });
   }
 
   if (commandName === 'negotiate-sponsor') {
     const team = requireTeam(interaction, database); if (!team) return;
     const result = engine.negotiateSponsor(team);
     db.saveTeam(database, interaction.user.id, team);
-    return interaction.reply(result.msg);
+    return replyResult(interaction, 'Sponsorship', result.msg);
   }
 
   if (commandName === 'finance') {
     const team = requireTeam(interaction, database); if (!team) return;
-    return interaction.reply(engine.financialReport(team));
+    return replyResult(interaction, 'Financial Report', engine.financialReport(team));
   }
 
   if (commandName === 'press-conference') {
     const team = requireTeam(interaction, database); if (!team) return;
-    return interaction.reply(`🎙️ ${engine.pressConference(team)}`);
+    return replyResult(interaction, '🎙️ Press Conference', engine.pressConference(team));
   }
 
   if (commandName === 'race-weekend') {
     const team = requireTeam(interaction, database); if (!team) return;
     const strategy = interaction.options.getString('strategy');
     const practice = engine.simulatePractice(team);
-    let output = `**${database.calendar[(database.race - 1) % database.calendar.length]} GP — Race ${database.race}**\n${practice.msg}\n`;
+    const trackName = database.calendar[(database.race - 1) % database.calendar.length];
+    const embed = baseEmbed(`🏁 ${trackName} GP — Race ${database.race}`)
+      .setDescription(`${practice.msg}\nTrack type: ${engine.trackType(database.race - 1)}`);
 
     for (const driver of team.drivers) {
       const grid = engine.simulateQualifying(team, driver);
-      output += `\n${driver.name} qualifies P${grid}.`;
       const result = engine.simulateRace(team, driver, grid, strategy);
       if (!result.finished) {
-        output += `\n${result.msg}`;
+        embed.addFields({ name: driver.name, value: `Qualified P${grid}. ${result.msg}` });
       } else {
-        output += `\nWeather: ${result.weather}${result.vsc ? ' (Safety Car deployed)' : ''}. Finishes P${result.position}.`;
+        let line = `Qualified P${grid}. Weather: ${result.weather}${result.vsc ? ' (Safety Car)' : ''}. Finished **P${result.position}**.`;
+        if (engine.fastestLapBonus(team)) line += ' 🟣 Fastest Lap!';
+        if (engine.redFlagCheck()) line += ' 🚩 Red flag interruption.';
+        embed.addFields({ name: driver.name, value: line });
         engine.applyRaceResult(team, driver, result);
       }
     }
+    embed.addFields({ name: 'News', value: engine.newsEvent() });
     database.race += 1;
     db.saveTeam(database, interaction.user.id, team);
-    return interaction.reply(output);
+    return interaction.reply({ embeds: [embed] });
   }
 
   if (commandName === 'standings') {
     const lb = db.getLeaderboard(database);
-    if (lb.length === 0) return interaction.reply('No teams yet.');
+    if (lb.length === 0) return replyResult(interaction, 'Standings', 'No teams yet.');
     const text = lb.map((t, i) => `${i + 1}. **${t.name}** — ${t.standingsPoints} pts`).join('\n');
-    return interaction.reply(text);
+    return replyResult(interaction, '🏆 League Standings', text);
   }
 
   if (commandName === 'trophies') {
     const team = requireTeam(interaction, database); if (!team) return;
-    if (team.trophyCabinet.length === 0) return interaction.reply('No trophies yet — keep racing!');
-    return interaction.reply(team.trophyCabinet.map(t => t.title).join('\n'));
+    const text = team.trophyCabinet.length ? team.trophyCabinet.map(t => t.title).join('\n') : 'No trophies yet — keep racing!';
+    return replyResult(interaction, '🏆 Trophy Cabinet', text);
   }
 
   if (commandName === 'calendar') {
-    return interaction.reply(`Season ${database.season}, Race ${database.race}: **${database.calendar[(database.race - 1) % database.calendar.length]} GP**\n\nFull calendar:\n${database.calendar.join(', ')}`);
+    return replyResult(interaction, '📅 Season Calendar',
+      `Season ${database.season}, Race ${database.race}: **${database.calendar[(database.race - 1) % database.calendar.length]} GP**\n\nFull calendar:\n${database.calendar.join(', ')}`);
   }
 
   if (commandName === 'end-season') {
     const awards = engine.endOfSeasonAwards(database);
     engine.resetForNewSeason(database);
     db.saveDB(database);
-    return interaction.reply(`🏆 **Season ${database.season - 1} Final Standings**\n${awards}\n\nSeason ${database.season} begins!`);
+    return replyResult(interaction, `🏆 Season ${database.season - 1} Final Standings`, `${awards}\n\nSeason ${database.season} begins!`);
   }
 }
 
-module.exports = { commands, handleCommand };
+// ---- Button interactions (driver market signing) ----
+async function handleButton(interaction, database) {
+  const team = db.getTeam(database, interaction.user.id);
+  if (!team) return interaction.reply({ content: 'You need a team first — run `/team-create`.', ephemeral: true });
+
+  if (interaction.customId.startsWith('sign_')) {
+    const driverId = interaction.customId.replace('sign_', '');
+    const driverData = driversData.findById(driverId);
+    if (!driverData) return interaction.reply({ content: 'That driver is no longer available.', ephemeral: true });
+
+    const emptySlot = team.drivers.findIndex(d => !d.poolId && d.skill <= 40);
+    const slot = emptySlot !== -1 ? emptySlot : 1;
+    const result = engine.signFreeAgent(team, driverData, slot);
+    db.saveTeam(database, interaction.user.id, team);
+    return interaction.reply({ embeds: [baseEmbed('Driver Market').setDescription(result.msg)], ephemeral: true });
+  }
+}
+
+module.exports = { commands, handleCommand, handleButton };
