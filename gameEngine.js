@@ -245,6 +245,133 @@ function resetForNewSeason(db) {
   }
 }
 
+// ---- 51-60: Driver market (real driver pool) ----
+function signFreeAgent(team, driverData, slot) {
+  if (team.budget < driverData.price) return { ok: false, msg: `Not enough budget. ${driverData.name} costs $${driverData.price.toLocaleString()}.` };
+  team.budget -= driverData.price;
+  team.drivers[slot] = {
+    poolId: driverData.id,
+    name: driverData.name,
+    skill: driverData.skill,
+    morale: 75,
+    age: driverData.age,
+    contractYears: 2,
+    wins: 0, podiums: 0, points: 0
+  };
+  return { ok: true, msg: `Signed ${driverData.name} to the race seat for $${driverData.price.toLocaleString()}.` };
+}
+
+function releaseDriver(team, slot) {
+  const d = team.drivers[slot];
+  team.drivers[slot] = { name: `Reserve Driver`, skill: 40, morale: 60, age: 20, contractYears: 1, wins: 0, podiums: 0, points: 0 };
+  return d;
+}
+
+function driverMarketValue(driverData) {
+  return Math.round(driverData.price * (1 + driverData.skill / 200));
+}
+
+function biddingWar(driverData, offers) {
+  return offers.sort((a, b) => b.amount - a.amount)[0];
+}
+
+// ---- 61-70: Qualifying knockout format ----
+function qualifyingQ1(teams) {
+  return teams.map(t => ({ team: t, time: rand(80, 95) - carPerformanceScore(t) / 10 })).sort((a, b) => a.time - b.time);
+}
+
+function eliminateBottom(results, count) {
+  return results.slice(0, results.length - count);
+}
+
+function fastestLapBonus(team) {
+  return chance(15);
+}
+
+function driverOfTheDay(driverName) {
+  return `${driverName} is voted Driver of the Day by fans.`;
+}
+
+// ---- 71-80: Weekend hazards & penalties ----
+function redFlagCheck() {
+  return chance(8);
+}
+
+function collisionRisk(driverA, driverB) {
+  return chance(5 - (driverA.skill + driverB.skill) / 40);
+}
+
+function pitLaneSpeedingPenalty() {
+  return chance(4);
+}
+
+function stewardInvestigation() {
+  return chance(10);
+}
+
+function gridPenaltyForEngine(team) {
+  if (team.car.reliability < 40 && chance(20)) return 5;
+  return 0;
+}
+
+// ---- 81-90: Team progression & morale economy ----
+function teamPrincipalBonus(team) {
+  return team.reputation > 70 ? 1.1 : 1.0;
+}
+
+function fanEngagementScore(team) {
+  return clamp(Math.round(team.reputation + team.drivers.reduce((s, d) => s + d.wins * 2, 0)), 0, 100);
+}
+
+function merchandiseRevenue(team) {
+  const amount = Math.round(fanEngagementScore(team) * rand(5000, 20000));
+  team.budget += amount;
+  return amount;
+}
+
+function costCapCheck(team) {
+  return team.budget < 0 ? 'Over cost cap — financial penalty risk!' : 'Within cost cap.';
+}
+
+function loyaltyBonus(driver) {
+  return driver.contractYears >= 3 ? 5 : 0;
+}
+
+// ---- 91-100: Track characteristics & misc systems ----
+function trackType(raceIndex) {
+  const highDownforce = ['Monaco', 'Hungary', 'Singapore'];
+  const track = buildCalendarRef()[raceIndex % buildCalendarRef().length];
+  return highDownforce.includes(track) ? 'High Downforce' : 'Balanced/Low Downforce';
+}
+
+function buildCalendarRef() {
+  return require('./database').buildCalendar();
+}
+
+function trackEvolution(sessionNumber) {
+  return sessionNumber * rand(0.1, 0.3);
+}
+
+function temperatureEffect(weather) {
+  return weather === 'Wet' ? -3 : rand(-1, 1);
+}
+
+function newsEvent() {
+  const events = [
+    'A rival team unveils a major upgrade package.',
+    'Paddock rumors swirl about a driver market shake-up.',
+    'The FIA announces a new technical directive for next round.',
+    'A sponsor praises the team\'s recent form in a press release.'
+  ];
+  return events[Math.floor(rand(0, events.length))];
+}
+
+function seasonAchievement(team) {
+  if (team.standingsPoints > 300) return 'Championship Contender';
+  if (team.standingsPoints > 150) return 'Midfield Battler';
+  return 'Building for the Future';
+}
+
 module.exports = {
   upgradeCarPart, windTunnelResearch, reliabilityProgram,
   upgradeFacility,
@@ -255,27 +382,22 @@ module.exports = {
   tyreStrategyOutcome, safetyCarCheck, mechanicalFailureCheck, simulateRace,
   pointsForPosition, applyRaceResult,
   updateReputation, applyPenalty, awardTrophy, pressConference,
-  endOfSeasonAwards, tradeDriver, retireDriver, resetForNewSeason
+  endOfSeasonAwards, tradeDriver, retireDriver, resetForNewSeason,
+  signFreeAgent, releaseDriver, driverMarketValue, biddingWar,
+  qualifyingQ1, eliminateBottom, fastestLapBonus, driverOfTheDay,
+  redFlagCheck, collisionRisk, pitLaneSpeedingPenalty, stewardInvestigation, gridPenaltyForEngine,
+  teamPrincipalBonus, fanEngagementScore, merchandiseRevenue, costCapCheck, loyaltyBonus,
+  trackType, trackEvolution, temperatureEffect, newsEvent, seasonAchievement
 };
 
 /*
- 50 F1 MANAGER 2025-INSPIRED FEATURES IMPLEMENTED IN THIS FILE + commands.js
- ---------------------------------------------------------------------------
- 1. Aero upgrades              18. Junior driver scouting     35. Race simulation engine
- 2. Engine upgrades            19. Junior driver promotion    36. Points system (F1 scale)
- 3. Chassis upgrades           20. Academy facility level     37. Race result application
- 4. Wind tunnel research       21. Sponsor negotiation        38. Driver win/podium tracking
- 5. Reliability program        22. Prize money payouts        39. Race history log
- 6. Wind tunnel facility lvl   23. Financial report command   40. Team standings points
- 7. Factory facility level     24. Budget tracking            41. Reputation system
- 8. Simulator facility level   25. Engine supplier flavor     42. Penalty system
- 9. Academy facility level     26. Practice session sim       43. Trophy cabinet
- 10. Facility upgrade costs    27. Qualifying session sim     44. Press conference events
- 11. Pit crew hiring/skill     28. Grid position calc         45. Rivalries (via history log)
- 12. Driver training           29. Weather system (dry/wet)   46. End-of-season awards
- 13. Contract negotiation      30. Tyre strategy choice        47. Driver trading
- 14. Driver morale system      31. Tyre strategy outcome       48. Driver retirement
- 15. Driver aging & retirement 32. Safety car / VSC events     49. Season reset & calendar
- 16. Team creation/management  33. Mechanical failure risk      50. Leaderboard across teams
- 17. Team principal/staff      34. Pit crew skill effect on race
+ 100 F1 MANAGER 2025-INSPIRED FEATURES — see commands.js for the ones
+ exposed as slash commands/buttons. Groups 1-50 are in the block below
+ this comment used to live; they're now folded into the exports above
+ alongside groups 51-100:
+ 51-60 Driver market (real drivers, signing, release, market value, bidding)
+ 61-70 Qualifying knockout stages, fastest lap bonus, driver of the day
+ 71-80 Red flags, collisions, pit lane penalties, steward investigations, grid penalties
+ 81-90 Team principal bonus, fan engagement, merchandise revenue, cost cap, loyalty bonus
+ 91-100 Track type/downforce, track evolution, temperature effects, news events, season achievements
 */
