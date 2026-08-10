@@ -14,6 +14,11 @@ if (!TOKEN) {
   process.exit(1);
 }
 
+// TEMP DEBUG - remove after confirming the token looks right
+console.log('DEBUG token length:', TOKEN.length);
+console.log('DEBUG token starts with:', TOKEN.slice(0, 6));
+console.log('DEBUG token ends with:', TOKEN.slice(-6));
+
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const database = db.loadDB();
 
