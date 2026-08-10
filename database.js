@@ -61,8 +61,8 @@ function createTeam(db, userId, teamName) {
       pitCrewSkill: 50
     },
     drivers: [
-      { name: 'Driver One', skill: 60, morale: 70, age: 24, contractYears: 2, wins: 0, podiums: 0, points: 0 },
-      { name: 'Driver Two', skill: 55, morale: 70, age: 22, contractYears: 2, wins: 0, podiums: 0, points: 0 }
+      { name: 'Driver One', skill: 60, morale: 70, age: 24, contractYears: 2, wins: 0, podiums: 0, points: 0, poolId: null },
+      { name: 'Driver Two', skill: 55, morale: 70, age: 22, contractYears: 2, wins: 0, podiums: 0, points: 0, poolId: null }
     ],
     juniors: [],
     sponsors: [],
