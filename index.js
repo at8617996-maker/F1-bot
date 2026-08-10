@@ -3,15 +3,14 @@
 // and routes interactions to commands.js.
 
 require('dotenv').config();
-const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits } = require('discord.js');
 const db = require('./database');
 const { commands, handleCommand } = require('./commands');
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
 
-if (!TOKEN || !CLIENT_ID) {
-  console.error('Missing DISCORD_TOKEN or CLIENT_ID in environment variables.');
+if (!TOKEN) {
+  console.error('Missing DISCORD_TOKEN in environment variables.');
   process.exit(1);
 }
 
@@ -19,10 +18,10 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const database = db.loadDB();
 
 async function registerCommands() {
-  const rest = new REST({ version: '10' }).setToken(TOKEN);
   const body = commands.map(c => c.toJSON());
   try {
-    await rest.put(Routes.applicationCommands(CLIENT_ID), { body });
+    // Uses the logged-in client's own application ID — no separate CLIENT_ID needed.
+    await client.application.commands.set(body);
     console.log(`Registered ${body.length} slash commands.`);
   } catch (err) {
     console.error('Failed to register commands:', err);
