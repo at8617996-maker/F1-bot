@@ -7,7 +7,7 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const db = require('./database');
 const { commands, handleCommand } = require('./commands');
 
-const TOKEN = process.env.DISCORD_TOKEN;
+const TOKEN = process.env.DISCORD_TOKEN?.trim();
 
 if (!TOKEN) {
   console.error('Missing DISCORD_TOKEN in environment variables.');
@@ -18,6 +18,8 @@ if (!TOKEN) {
 console.log('DEBUG token length:', TOKEN.length);
 console.log('DEBUG token starts with:', TOKEN.slice(0, 6));
 console.log('DEBUG token ends with:', TOKEN.slice(-6));
+console.log('DEBUG token dot count:', (TOKEN.match(/\./g) || []).length);
+console.log('DEBUG token JSON:', JSON.stringify(TOKEN.slice(0, 15)));
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const database = db.loadDB();
