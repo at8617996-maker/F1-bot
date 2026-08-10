@@ -1,11 +1,11 @@
 // index.js
 // Main entry point. Boots the Discord client, registers slash commands,
-// and routes interactions to commands.js.
+// and routes interactions (slash commands + buttons) to commands.js.
 
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 const db = require('./database');
-const { commands, handleCommand } = require('./commands');
+const { commands, handleCommand, handleButton } = require('./commands');
 
 const TOKEN = process.env.DISCORD_TOKEN?.trim();
 
@@ -13,13 +13,6 @@ if (!TOKEN) {
   console.error('Missing DISCORD_TOKEN in environment variables.');
   process.exit(1);
 }
-
-// TEMP DEBUG - remove after confirming the token looks right
-console.log('DEBUG token length:', TOKEN.length);
-console.log('DEBUG token starts with:', TOKEN.slice(0, 6));
-console.log('DEBUG token ends with:', TOKEN.slice(-6));
-console.log('DEBUG token dot count:', (TOKEN.match(/\./g) || []).length);
-console.log('DEBUG token JSON:', JSON.stringify(TOKEN.slice(0, 15)));
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const database = db.loadDB();
@@ -41,9 +34,12 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
   try {
-    await handleCommand(interaction, database);
+    if (interaction.isChatInputCommand()) {
+      await handleCommand(interaction, database);
+    } else if (interaction.isButton()) {
+      await handleButton(interaction, database);
+    }
   } catch (err) {
     console.error(err);
     if (interaction.replied || interaction.deferred) {
